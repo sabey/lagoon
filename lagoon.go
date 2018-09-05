@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 var (
@@ -16,9 +17,11 @@ type Lagoon struct {
 	// safe
 	config *Config
 	// unsafe
-	available map[*Connection]struct{}
-	active    map[*Connection]struct{}
-	mu        sync.RWMutex
+	available      map[*Connection]struct{}
+	active         map[*Connection]struct{}
+	ticker_running time.Time
+	ticker_stop    bool
+	mu             sync.RWMutex
 }
 
 func CreateLagoon(
@@ -77,6 +80,8 @@ func (self *Lagoon) dial() error {
 	// dialed
 	// wrap connection and store in available
 	self.available[self.createConnection(conn)] = struct{}{}
+	// toggle tick
+	self.toggleTick()
 	return nil
 }
 func (self *Lagoon) DialInitialize() error {
@@ -110,7 +115,10 @@ func (self *Lagoon) Dial() (
 		// remove from available
 		delete(self.available, conn)
 		// store in active
+		conn.idle = time.Time{}
 		self.active[conn] = struct{}{}
+		// toggle tick
+		self.toggleTick()
 		return conn, nil
 	}
 	log.Panicln("./lagoon.Dial(): available container was empty, wtf???")

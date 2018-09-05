@@ -3,6 +3,13 @@ package lagoon
 import (
 	"fmt"
 	"net"
+	"time"
+)
+
+const (
+	TICKEVERY_MIN     = time.Second * 5
+	TICKEVERY_DEFAULT = time.Second * 15
+	TICKEVERY_MAX     = time.Minute
 )
 
 var (
@@ -16,6 +23,8 @@ var (
 type Config struct {
 	Dial        func() (net.Conn, error)
 	DialInitial int
+	IdleTimeout time.Duration
+	TickEvery   time.Duration
 	Buffer      *Buffer
 }
 
@@ -32,6 +41,8 @@ func (self *Config) Clone() *Config {
 	config := &Config{
 		Dial:        self.Dial,
 		DialInitial: self.DialInitial,
+		IdleTimeout: self.IdleTimeout,
+		TickEvery:   self.TickEvery,
 		Buffer:      self.Buffer,
 	}
 	return config
@@ -51,6 +62,13 @@ func (self *Config) Validate() error {
 	}
 	if self.DialInitial > self.Buffer.GetMax() {
 		return ERR_DIAL_INITIAL_BUFFER_MAX
+	}
+	if self.TickEvery == 0 {
+		self.TickEvery = TICKEVERY_DEFAULT
+	} else if self.TickEvery < TICKEVERY_MIN {
+		self.TickEvery = TICKEVERY_MIN
+	} else if self.TickEvery > TICKEVERY_MAX {
+		self.TickEvery = TICKEVERY_MAX
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package lagoon
 import (
 	"net"
 	"sync"
+	"time"
 )
 
 type Connection struct {
@@ -11,6 +12,7 @@ type Connection struct {
 	// unsafe
 	net.Conn
 	disabled bool
+	idle     time.Time
 	mu       sync.Mutex
 }
 
@@ -26,6 +28,7 @@ func (self *Lagoon) createConnection(
 	return &Connection{
 		l:    self,
 		Conn: conn,
+		idle: time.Now(),
 	}
 }
 func (self *Connection) Disable() {
@@ -34,14 +37,20 @@ func (self *Connection) Disable() {
 	self.mu.Unlock()
 }
 func (self *Connection) Close() error {
+	// lock parent
 	self.l.mu.Lock()
 	defer self.l.mu.Unlock()
 	return self.close()
 }
 func (self *Connection) close() error {
-	var err error
+	// lock self
 	self.mu.Lock()
 	defer self.mu.Unlock()
+	return self.remove()
+}
+func (self *Connection) remove() error {
+	// assumed that parent and self are both locked
+	var err error
 	// check if connection is in active
 	if _, ok := self.l.active[self]; ok {
 		// remove from active
@@ -53,6 +62,7 @@ func (self *Connection) close() error {
 			self.l.config.Buffer.release()
 		} else {
 			// return to available
+			self.idle = time.Now()
 			self.l.available[self] = struct{}{}
 			// DO NOT RELEASE BUFFER!!!
 		}
@@ -72,6 +82,8 @@ func (self *Connection) close() error {
 			// DO NOT RELEASE BUFFER!!!
 		}
 	}
+	// toggle tick
+	self.l.toggleTick()
 	// closed
 	if err != nil {
 		return err

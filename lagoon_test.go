@@ -239,6 +239,134 @@ func TestLagoon(t *testing.T) {
 	unittest.Equals(t, len(l.available)+len(l.active), 0)
 	unittest.Equals(t, l.Connections(), 0)
 }
+func TestLagoonIdle(t *testing.T) {
+	log.Println("TestLagoonIdle")
+
+	go func() {
+		<-time.After(time.Second * 15)
+		log.Fatalln("unitests failed")
+	}()
+
+	buffer := CreateBuffer(5, time.Second*2)
+	unittest.NotNil(t, buffer)
+
+	config := &Config{
+		Dial: func() (net.Conn, error) {
+			return &fakeConnection{}, nil
+		},
+		DialInitial: 0,
+		Buffer:      buffer,
+	}
+
+	l, err := CreateLagoon(config)
+	unittest.IsNil(t, err)
+	unittest.NotNil(t, l)
+
+	// overwrite internal tickevery and idle
+	l.config.TickEvery = time.Millisecond * 500
+	l.config.IdleTimeout = time.Second * 2
+
+	l.mu.Lock()
+	unittest.Equals(t, l.ticker_running.IsZero(), true)
+	unittest.Equals(t, l.ticker_stop, false)
+	l.mu.Unlock()
+
+	// allocate connections
+	fmt.Println("allocate connections")
+
+	l.DialInitialize()
+	l.DialInitialize()
+	l.DialInitialize()
+	l.DialInitialize()
+	l.DialInitialize()
+
+	<-time.After(time.Second)
+
+	// check ticker
+	l.mu.Lock()
+	unittest.Equals(t, l.ticker_running.IsZero(), false)
+	unittest.Equals(t, l.ticker_stop, false)
+	l.mu.Unlock()
+	unittest.Equals(t, l.ConnectionsAvailable(), 5)
+	unittest.Equals(t, l.ConnectionsActive(), 0)
+	unittest.Equals(t, l.Connections(), 5)
+
+	// wait for idle to be closed
+	fmt.Println("wait for idle to be closed")
+
+	<-time.After(time.Second * 3)
+
+	// check ticker
+	l.mu.Lock()
+	unittest.Equals(t, l.ticker_running.IsZero(), true)
+	unittest.Equals(t, l.ticker_stop, false)
+	l.mu.Unlock()
+	unittest.Equals(t, l.ConnectionsAvailable(), 0)
+	unittest.Equals(t, l.ConnectionsActive(), 0)
+	unittest.Equals(t, l.Connections(), 0)
+
+	fmt.Println("allocate connections and acquire 1")
+
+	l.DialInitialize()
+	l.DialInitialize()
+	l.DialInitialize()
+	l.DialInitialize()
+	l.DialInitialize()
+
+	<-time.After(time.Second)
+
+	c, err := l.Dial()
+	unittest.IsNil(t, err)
+
+	// check ticker
+	l.mu.Lock()
+	unittest.Equals(t, l.ticker_running.IsZero(), false)
+	unittest.Equals(t, l.ticker_stop, false)
+	l.mu.Unlock()
+	unittest.Equals(t, l.ConnectionsAvailable(), 4)
+	unittest.Equals(t, l.ConnectionsActive(), 1)
+	unittest.Equals(t, l.Connections(), 5)
+
+	// wait for idle to be closed
+	fmt.Println("wait for idle to be closed")
+
+	<-time.After(time.Second * 3)
+
+	// check ticker
+	l.mu.Lock()
+	unittest.Equals(t, l.ticker_running.IsZero(), true)
+	unittest.Equals(t, l.ticker_stop, false)
+	l.mu.Unlock()
+	unittest.Equals(t, l.ConnectionsAvailable(), 0)
+	unittest.Equals(t, l.ConnectionsActive(), 1)
+	unittest.Equals(t, l.Connections(), 1)
+
+	fmt.Println("close active")
+	c.Close()
+
+	// check ticker
+	l.mu.Lock()
+	unittest.Equals(t, l.ticker_running.IsZero(), false)
+	unittest.Equals(t, l.ticker_stop, false)
+	l.mu.Unlock()
+	unittest.Equals(t, l.ConnectionsAvailable(), 1)
+	unittest.Equals(t, l.ConnectionsActive(), 0)
+	unittest.Equals(t, l.Connections(), 1)
+
+	// wait for idle to be closed
+	fmt.Println("wait for idle to be closed")
+
+	<-time.After(time.Second * 3)
+
+	// check ticker
+	l.mu.Lock()
+	unittest.Equals(t, l.ticker_running.IsZero(), true)
+	unittest.Equals(t, l.ticker_stop, false)
+	l.mu.Unlock()
+	unittest.Equals(t, l.ConnectionsAvailable(), 0)
+	unittest.Equals(t, l.ConnectionsActive(), 0)
+	unittest.Equals(t, l.Connections(), 0)
+}
 
 type fakeConnection struct{}
 
